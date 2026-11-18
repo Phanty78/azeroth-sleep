@@ -1,0 +1,91 @@
+name: CI
+
+# Quoted for YAML 1.1 parsers, which otherwise treat the bare key as boolean true.
+"on":
+  push:
+  pull_request:
+
+# Least privilege: every job only needs to read the repository.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref (typical for rapid PR pushes).
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run ShellCheck
+        run: |
+          # -x follows the sourced sleep-common.sh; -P SCRIPTDIR resolves
+          # `# shellcheck source=sleep-common.sh` relative to each script
+          # even though ShellCheck runs from the repository root (/sh).
+          docker run --rm \
+            --volume "$PWD:/sh:ro" \
+            --workdir /sh \
+            koalaman/shellcheck:stable \
+            -x -P SCRIPTDIR \
+            docker/*.sh docker/test/run-tests.sh docker/sleepctl.sh
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan for secrets
+        run: |
+          # gitleaks detect exits non-zero on any finding, so leaks fail the
+          # job. --redact keeps potential secret values out of the logs.
+          # Scanning git history requires the full checkout (fetch-depth: 0).
+          docker run --rm \
+            --volume "$PWD:/repo:ro" \
+            --workdir /repo \
+            zricethezav/gitleaks:latest \
+            detect --source . --verbose --redact
+
+  hadolint:
+    name: hadolint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run Hadolint
+        run: |
+          # DL3018 (pin apk package versions) is intentionally ignored: both
+          # images install packages from the pinned Alpine 3.20 repository
+          # instead of pinning every package version.
+          # The hadolint image defines CMD (not ENTRYPOINT), so the binary
+          # must be named explicitly when arguments are passed.
+          docker run --rm \
+            --volume "$PWD:/repo:ro" \
+            --workdir /repo \
+            hadolint/hadolint:latest \
+            hadolint --ignore DL3018 \
+            docker/Dockerfile docker/test/mock.Dockerfile
+
+  build:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build supervisor image
+        run: docker build --file docker/Dockerfile --tag azerothsleep/ac-sleep:ci docker
+      - name: Build mock image
+        run: docker build --file docker/test/mock.Dockerfile --tag azerothsleep/ac-sleep-mock:ci docker/test
