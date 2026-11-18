@@ -1,0 +1,67 @@
+# Self-contained integration stack for docker/test/run-tests.sh.
+#
+# Project name and container names are deliberately distinct from a real
+# AzerothCore stack, and the published host ports are shifted (13724/18085)
+# so this stack can run beside one. Only these two ports are published.
+name: sleep-selftest
+
+services:
+  mock-auth:
+    build:
+      context: .
+      dockerfile: mock.Dockerfile
+    image: azeroth-sleep-mock:local
+    container_name: mock-auth
+    environment:
+      PORT: "3724"
+    networks:
+      - sleep-net
+
+  mock-world:
+    build:
+      context: .
+      dockerfile: mock.Dockerfile
+    image: azeroth-sleep-mock:local
+    container_name: mock-world
+    environment:
+      PORT: "8085"
+    networks:
+      - sleep-net
+
+  ac-sleep:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: azeroth-sleep-selftest:local
+    container_name: ac-sleep-test
+    init: true
+    restart: unless-stopped
+    networks:
+      - sleep-net
+    # Same hardening as docker/docker-compose.sleep.yml.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # Neither name is hard-coded by the supervisor: this proves targeting
+      # works with arbitrary container names.
+      SLEEP_TARGET_CONTAINERS: "mock-world mock-auth"
+      SLEEP_IDLE_TIMEOUT: "5"
+      SLEEP_CHECK_INTERVAL: "2"
+      SLEEP_LISTEN_AUTH: "3724"
+      SLEEP_LISTEN_WORLD: "8085"
+      SLEEP_BACKEND_AUTH: "mock-auth:3724"
+      SLEEP_BACKEND_WORLD: "mock-world:8085"
+    ports:
+      - "13724:3724"
+      - "18085:8085"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  sleep-net:
+    name: sleep-net
