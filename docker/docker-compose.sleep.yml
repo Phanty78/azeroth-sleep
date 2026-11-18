@@ -1,0 +1,37 @@
+# azeroth-sleep overlay. Load AFTER docker-compose.yml and any user override.
+# Recommended (project .env): COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:/opt/azeroth-sleep/docker/docker-compose.sleep.yml
+services:
+  ac-authserver:
+    ports: !override []
+  ac-worldserver:
+    ports: !override []
+  ac-sleep:
+    build:
+      context: ${SLEEP_BUILD_CONTEXT:?set SLEEP_BUILD_CONTEXT to the absolute path of the azeroth-sleep docker/ directory}
+      dockerfile: Dockerfile
+    image: ${SLEEP_IMAGE:-azerothsleep/ac-sleep:latest}
+    container_name: ${SLEEP_CONTAINER_NAME:-ac-sleep}
+    init: true
+    restart: unless-stopped
+    networks:
+      - ${SLEEP_NETWORK:-ac-network}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SLEEP_TARGET_CONTAINERS: ${SLEEP_TARGET_CONTAINERS:-ac-worldserver ac-authserver}
+      SLEEP_IDLE_TIMEOUT: ${SLEEP_IDLE_TIMEOUT:-600}
+      SLEEP_CHECK_INTERVAL: ${SLEEP_CHECK_INTERVAL:-30}
+      SLEEP_LISTEN_AUTH: ${SLEEP_LISTEN_AUTH:-3724}
+      SLEEP_LISTEN_WORLD: ${SLEEP_LISTEN_WORLD:-8085}
+      SLEEP_BACKEND_AUTH: ${SLEEP_BACKEND_AUTH:-ac-authserver:3724}
+      SLEEP_BACKEND_WORLD: ${SLEEP_BACKEND_WORLD:-ac-worldserver:8085}
+    ports:
+      - ${DOCKER_AUTH_EXTERNAL_PORT:-3724}:${SLEEP_LISTEN_AUTH:-3724}
+      - ${DOCKER_WORLD_EXTERNAL_PORT:-8085}:${SLEEP_LISTEN_WORLD:-8085}
+    volumes:
+      - ${SLEEP_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
